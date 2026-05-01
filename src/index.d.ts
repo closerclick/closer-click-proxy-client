@@ -36,9 +36,12 @@ export class WebSocketProxyClient {
   on (event: ProxyEvent, handler: (...args: any[]) => void): () => void
   off (event: ProxyEvent, handler: (...args: any[]) => void): void
   send (to: string | string[], payload: any): void
-  publish (channel: string): Promise<any>
+  disconnect (): void
+  updateConfig (options: WebSocketProxyClientOptions): void
+  publish (channel: string, extraData?: Record<string, any>): Promise<any>
   unpublish (channel: string): Promise<any>
   list (channel: string): Promise<string[]>
+  listChannel (channel: string): Promise<string[]>
   listChannels (options?: ListChannelsOptions): Promise<ChannelEntry[]>
   channelCount (channel: string): Promise<number>
   disconnectFrom (targetToken: string): Promise<any>
@@ -53,3 +56,7 @@ export function buildSignedChannel (
   channelName: string,
   extraData?: Record<string, any>
 ): Promise<{ data: { name: string; publickey: string; [k: string]: any }; signature: string }>
+
+export function getWebSocketProxyClient (
+  options?: WebSocketProxyClientOptions
+): WebSocketProxyClient

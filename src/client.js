@@ -58,6 +58,17 @@ export class WebSocketProxyClient {
     }
   }
 
+  /** Alias for close() to ease migration from older clients. */
+  disconnect () { return this.close() }
+
+  /** Update connection options before (re)connecting. */
+  updateConfig (options = {}) {
+    if (options.url) this.url = options.url
+    if (typeof options.autoReconnect === 'boolean') this.autoReconnect = options.autoReconnect
+    if (typeof options.maxReconnectAttempts === 'number') this.maxReconnectAttempts = options.maxReconnectAttempts
+    if (typeof options.reconnectDelay === 'number') this.reconnectDelay = options.reconnectDelay
+  }
+
   on (event, handler) {
     if (!this._handlers.has(event)) this._handlers.set(event, new Set())
     this._handlers.get(event).add(handler)
@@ -81,9 +92,13 @@ export class WebSocketProxyClient {
     })
   }
 
-  /** Publish self into a public channel. */
-  async publish (channelName) {
-    const channel = await buildSignedChannel(channelName)
+  /**
+   * Publish self into a public channel.
+   * @param {string} channelName
+   * @param {Object} [extraData] Extra fields baked into channel.data and signed.
+   */
+  async publish (channelName, extraData = {}) {
+    const channel = await buildSignedChannel(channelName, extraData)
     return this._request({ type: 'publish', channel }, 'published', 'channel')
   }
 
@@ -99,6 +114,9 @@ export class WebSocketProxyClient {
     const res = await this._request({ type: 'list', channel }, 'channel_list', 'channel')
     return res.tokens || []
   }
+
+  /** Alias for list() to ease migration from older clients. */
+  listChannel (channelName) { return this.list(channelName) }
 
   /** List public channel names (optionally filtered by prefix). */
   async listChannels (options = {}) {
