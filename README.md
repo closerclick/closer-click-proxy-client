@@ -1,17 +1,17 @@
-# @seyacat/closer-click-proxy-client
+# @gatoseya/closer-click-proxy-client
 
 Cliente WebSocket para el proxy de Closer Click. Maneja la conexión, el token efímero, mensajes peer-to-peer y canales públicos firmados con ECDSA P-256.
 
 ## Instalación
 
 ```bash
-npm install @seyacat/closer-click-proxy-client
+npm install @gatoseya/closer-click-proxy-client
 ```
 
 ## Uso
 
 ```js
-import { WebSocketProxyClient } from '@seyacat/closer-click-proxy-client'
+import { WebSocketProxyClient } from '@gatoseya/closer-click-proxy-client'
 
 const client = new WebSocketProxyClient({ url: 'wss://proxy.closer.click' })
 
