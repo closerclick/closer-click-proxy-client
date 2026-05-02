@@ -237,8 +237,25 @@ export class WebSocketProxyClient {
         this._resolvePending(data, type)
         break
       case 'error':
-        this._emit('error', { type: 'server', error: data.error, id: data.id, messageId: data.messageId })
+        this._emit('error', {
+          type: 'server',
+          error: data.error,
+          id: data.id,
+          messageId: data.messageId,
+          limit_level: data.limit_level,
+          limit_type: data.limit_type,
+          retry_after_ms: data.retry_after_ms,
+          operation: data.operation
+        })
         this._rejectPending(data)
+        break
+      case 'abuse_notice':
+        this._emit('abuse_notice', {
+          from: data.from,
+          operation: data.operation,
+          severity: data.severity,
+          timestamp: data.timestamp
+        })
         break
       default:
         this._emit('unknown', data)

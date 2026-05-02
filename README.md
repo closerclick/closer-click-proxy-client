@@ -60,6 +60,7 @@ const signature = await client.sign({ msg: 'hola' })
 | `peer_disconnected` | `(token, channel?)`              |
 | `reconnecting`      | `(attempt, maxAttempts)`         |
 | `reconnect_failed`  | `(attempts)`                     |
+| `abuse_notice`      | `({ from, operation, severity, timestamp })` — el proxy avisa que `from` está enviando demasiado. Las apps pueden penalizar el ranking de ese token. |
 
 ## Diseño
 

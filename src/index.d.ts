@@ -25,7 +25,15 @@ export type ProxyEvent =
   | 'peer_disconnected'
   | 'reconnecting'
   | 'reconnect_failed'
+  | 'abuse_notice'
   | 'unknown'
+
+export interface AbuseNotice {
+  from: string
+  operation: string
+  severity: 'soft'
+  timestamp: string
+}
 
 export class WebSocketProxyClient {
   constructor (options?: WebSocketProxyClientOptions)
