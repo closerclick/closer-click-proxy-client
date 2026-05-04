@@ -59,6 +59,8 @@ export class WebSocketProxyClient {
   listChannels (options?: ListChannelsOptions): Promise<ChannelEntry[]>
   channelCount (channel: string): Promise<number>
   disconnectFrom (targetToken: string): Promise<any>
+  sendByPubkey (toPubkeys: string | string[], payload: any): void
+  identify (envelope: { data: any; signature: string }): Promise<{ publickey: string; queued_delivered: number }>
   connectWebRTC (token: string): Promise<void>
   isWebRTCOpen (token: string): boolean
   getPublicKey (): Promise<string>

@@ -177,6 +177,37 @@ export class WebSocketProxyClient {
     return res.count || 0
   }
 
+  /**
+   * Direccionar uno o varios mensajes por **publickey** (con cola offline en
+   * el proxy hasta 24h). El destinatario debe haber llamado previamente a
+   * `identify` para que el proxy sepa qué token tiene asignado en cada momento.
+   *
+   * Si el destinatario está conectado, se entrega de inmediato; si no, queda
+   * en cola y se entrega cuando se reconecte e identifique. Los WebRTC peers
+   * NO se usan para esta ruta (el proxy debe ser el broker).
+   *
+   * @param {string|string[]} toPubkeys publickey JWK string o array
+   * @param {any} payload
+   */
+  sendByPubkey (toPubkeys, payload) {
+    const list = Array.isArray(toPubkeys) ? toPubkeys : [toPubkeys]
+    this._sendRaw({
+      to_publickey: list,
+      message: typeof payload === 'string' ? payload : JSON.stringify(payload)
+    })
+  }
+
+  /**
+   * Registrar la conexión actual bajo una publickey estable. Se requiere un
+   * sobre `{data:{op,publickey,token,ts}, signature}` firmado externamente
+   * (típicamente por el identity vault). Devuelve la respuesta del proxy con
+   * `queued_delivered` (mensajes offline despachados al instante).
+   */
+  identify ({ data, signature }) {
+    if (!data || !signature) throw new Error('identify requires {data, signature}')
+    return this._request({ type: 'identify', data, signature }, 'identified')
+  }
+
   /** Tear down the logical pair with a peer (both sides get notified). */
   async disconnectFrom (targetToken) {
     return this._request(
@@ -251,7 +282,7 @@ export class WebSocketProxyClient {
         }
         break
       case 'message': {
-        const { from, message, timestamp } = data
+        const { from, message, timestamp, from_publickey, queued, queued_at } = data
         let parsed = null
         if (typeof message === 'string') {
           try { parsed = JSON.parse(message) } catch (_) { parsed = null }
@@ -260,7 +291,12 @@ export class WebSocketProxyClient {
           this._rtc.handleIncoming(from, parsed)
           break
         }
-        this._emit('message', from, parsed ?? message, { raw: message, timestamp, via: 'proxy' })
+        this._emit('message', from, parsed ?? message, {
+          raw: message, timestamp, via: 'proxy',
+          fromPubkey: from_publickey || null,
+          queued: !!queued,
+          queuedAt: queued_at || null
+        })
         break
       }
       case 'disconnected':
@@ -280,6 +316,7 @@ export class WebSocketProxyClient {
       case 'channels_list':
       case 'channel_count':
       case 'disconnect_confirmation':
+      case 'identified':
       case 'message_sent':
         this._resolvePending(data, type)
         break
