@@ -1,4 +1,5 @@
 import { buildSignedChannel, getPublicKeyJwk, signData } from './signature.js'
+import { WebRTCManager, RTC_TAG } from './webrtc.js'
 
 /**
  * Closer Click WebSocket proxy client.
@@ -23,6 +24,8 @@ export class WebSocketProxyClient {
     this.autoReconnect = options.autoReconnect !== false
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5
     this.reconnectDelay = options.reconnectDelay ?? 3000
+    this.enableWebRTC = options.enableWebRTC !== false
+    this.iceServers = options.iceServers || null
 
     this.ws = null
     this.token = null
@@ -32,6 +35,14 @@ export class WebSocketProxyClient {
     this._handlers = new Map()
     this._pending = new Map() // messageId -> { resolve, reject, timer }
     this._nextId = 1
+
+    this._rtc = this.enableWebRTC ? new WebRTCManager({
+      getSelfToken: () => this.token,
+      signalSend: (to, payload) => this._proxySendOne(to, payload),
+      deliverMessage: (from, parsed, meta) => this._emit('message', from, parsed, meta),
+      emit: (event, ...args) => this._emit(event, ...args),
+      config: this.iceServers ? { iceServers: this.iceServers } : null
+    }) : null
   }
 
   // ---------- public API ----------
@@ -53,6 +64,7 @@ export class WebSocketProxyClient {
       clearTimeout(this._reconnectTimer)
       this._reconnectTimer = null
     }
+    if (this._rtc) this._rtc.closeAll()
     if (this.ws) {
       try { this.ws.close(1000) } catch (_) {}
     }
@@ -86,8 +98,38 @@ export class WebSocketProxyClient {
    */
   send (to, payload) {
     const tokens = Array.isArray(to) ? to : [to]
+    const messageStr = typeof payload === 'string' ? payload : JSON.stringify(payload)
+    if (!this._rtc) {
+      this._sendRaw({ to: tokens, message: messageStr })
+      return
+    }
+    const proxyTokens = []
+    for (const t of tokens) {
+      if (!this._rtc.trySend(t, messageStr)) proxyTokens.push(t)
+    }
+    if (proxyTokens.length) {
+      this._sendRaw({ to: proxyTokens, message: messageStr })
+    }
+  }
+
+  /**
+   * Force opening (or reusing) a WebRTC DataChannel to a peer.
+   * Resolves once the channel is open. Rejects on failure.
+   */
+  connectWebRTC (token) {
+    if (!this._rtc) return Promise.reject(new Error('WebRTC disabled'))
+    return this._rtc.connect(token)
+  }
+
+  /** True if there is an open DataChannel to the given peer. */
+  isWebRTCOpen (token) {
+    return !!(this._rtc && this._rtc.isOpen(token))
+  }
+
+  _proxySendOne (to, payload) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
     this._sendRaw({
-      to: tokens,
+      to: [to],
       message: typeof payload === 'string' ? payload : JSON.stringify(payload)
     })
   }
@@ -214,11 +256,16 @@ export class WebSocketProxyClient {
         if (typeof message === 'string') {
           try { parsed = JSON.parse(message) } catch (_) { parsed = null }
         }
-        this._emit('message', from, parsed ?? message, { raw: message, timestamp })
+        if (this._rtc && parsed && parsed.t === RTC_TAG) {
+          this._rtc.handleIncoming(from, parsed)
+          break
+        }
+        this._emit('message', from, parsed ?? message, { raw: message, timestamp, via: 'proxy' })
         break
       }
       case 'disconnected':
         this._emit('peer_disconnected', data.token, data.channel || null)
+        if (this._rtc && data.token) this._rtc.closePeer(data.token)
         this._resolvePending(data, 'token')
         break
       case 'joined':

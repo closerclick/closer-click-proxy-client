@@ -37,6 +37,31 @@ client.send(['ABCD'], { type: 'hello', text: 'hi' })
 await client.disconnectFrom('ABCD')
 ```
 
+## Transporte WebRTC (P2P) con fallback al proxy
+
+Por defecto el cliente intenta abrir un `RTCDataChannel` con cada peer al que le envías mensajes. Si la negociación tiene éxito, los `send()` posteriores viajan directamente entre navegadores; si falla (NAT simétrico, etc.) se sigue usando el proxy de forma transparente.
+
+```js
+const client = new WebSocketProxyClient({
+  url: 'wss://proxy.closer.click',
+  enableWebRTC: true,           // default
+  // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]  // override opcional
+})
+
+client.on('webrtc_open',  (token) => console.log('P2P abierto con', token))
+client.on('webrtc_close', (token) => console.log('P2P cerrado con', token))
+
+// Forzar handshake antes de enviar
+await client.connectWebRTC('ABCD')
+client.send('ABCD', { type: 'hello' })  // viaja P2P si está abierto
+```
+
+Notas:
+- Solo se usan servidores STUN públicos. Sin TURN, los pares en NAT simétrico se quedan en proxy (es el comportamiento esperado).
+- La señalización (offer / answer / ICE) se transporta por el propio proxy como mensajes `__cc_rtc__`, así que no necesitas un canal extra.
+- Los handlers de `'message'` reciben un tercer argumento con `via: 'webrtc' | 'proxy'` para distinguir el transporte si lo necesitas.
+- Pasa `enableWebRTC: false` para volver al comportamiento previo (todo por proxy).
+
 ## Identidad
 
 Cada navegador genera y persiste un par ECDSA P-256 en `localStorage` (`closer-click.proxy-client.keypair`). La pública se incluye en cada operación de canal y sirve como identidad estable entre sesiones (no entre apps con orígenes distintos — para eso usa la librería de identidad).

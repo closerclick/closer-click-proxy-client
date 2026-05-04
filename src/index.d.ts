@@ -3,6 +3,10 @@ export interface WebSocketProxyClientOptions {
   autoReconnect?: boolean
   maxReconnectAttempts?: number
   reconnectDelay?: number
+  /** Enable WebRTC DataChannel transport with proxy fallback. Default true. */
+  enableWebRTC?: boolean
+  /** Override ICE servers (STUN-only by default). */
+  iceServers?: RTCIceServer[]
 }
 
 export interface ChannelEntry {
@@ -26,6 +30,8 @@ export type ProxyEvent =
   | 'reconnecting'
   | 'reconnect_failed'
   | 'abuse_notice'
+  | 'webrtc_open'
+  | 'webrtc_close'
   | 'unknown'
 
 export interface AbuseNotice {
@@ -53,6 +59,8 @@ export class WebSocketProxyClient {
   listChannels (options?: ListChannelsOptions): Promise<ChannelEntry[]>
   channelCount (channel: string): Promise<number>
   disconnectFrom (targetToken: string): Promise<any>
+  connectWebRTC (token: string): Promise<void>
+  isWebRTCOpen (token: string): boolean
   getPublicKey (): Promise<string>
   sign (data: any): Promise<string>
 }
