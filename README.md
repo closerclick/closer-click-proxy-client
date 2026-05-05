@@ -71,6 +71,33 @@ const pubkeyJwk = await client.getPublicKey()
 const signature = await client.sign({ msg: 'hola' })
 ```
 
+## Cola offline + fan-out multi-instancia (0.4.0+)
+
+Para mensajes que deben llegar aunque el destinatario esté offline, el proxy mantiene una cola por **publickey**. Para usarla, el cliente llama a `identify()` con un sobre firmado externamente (típicamente por el identity vault), y luego direcciona por `to_publickey` en lugar de `to`.
+
+```js
+import { Identity } from '@gatoseya/closer-click-identity'
+
+const id = await Identity.connect()
+await client.connect()
+
+// Bind: el proxy asocia mi pubkey con mi token actual
+const data = { op: 'identify', publickey: id.me.publickey, token: client.token, ts: Date.now() }
+const { signature } = await id.signData(data)
+const result = await client.identify({ data, signature })
+//   result = { publickey, queued_delivered: <N> }   ← N mensajes en cola que llegan al instante
+
+// Enviar por pubkey: si el peer tiene 1+ instancias online, fan-out a todas;
+// si no, queda en cola del proxy 24h y se entrega al primer reconnect.
+client.sendByPubkey(['<peer-publickey-jwk>'], { type: 'dm', text: 'hola' })
+```
+
+En los handlers `'message'`, el tercer argumento incluye:
+- `meta.via`: `'webrtc' | 'proxy'`
+- `meta.fromPubkey`: la pubkey del remitente (poblada cuando llegó por `to_publickey`).
+- `meta.queued`: `true` si venía de la cola offline.
+- `meta.queuedAt`: timestamp ISO de cuando se encoló.
+
 ## Eventos
 
 | evento              | argumentos                       |
