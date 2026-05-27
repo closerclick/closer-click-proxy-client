@@ -98,6 +98,39 @@ En los handlers `'message'`, el tercer argumento incluye:
 - `meta.queued`: `true` si venía de la cola offline.
 - `meta.queuedAt`: timestamp ISO de cuando se encoló.
 
+## Web Push — "timbre" para mensajes offline (0.5.0+)
+
+Cuando un mensaje cae a la cola offline, el proxy puede mandar un **Web Push** (sin contenido de usuario) que despierta al Service Worker del destinatario para que reconecte y baje su cola cifrada. Usa **Web Push estándar + VAPID** — **no** el SDK de Firebase, ni JS de terceros, ni cookies. El push solo dice "despertá"; el contenido nunca pasa por el push service (en Android, FCM solo ve el metadato del timbre).
+
+**Requisitos:** el proxy debe tener VAPID configurado, y la app debe servir el Service Worker desde su propio origen. Copiá `node_modules/@gatoseya/closer-click-proxy-client/sw/closer-click-push-sw.js` a tu carpeta pública (p.ej. `/public/`).
+
+```js
+import { Identity } from '@gatoseya/closer-click-identity'
+
+const id = await Identity.connect()
+await client.connect()
+
+// (1) identify primero: el push se liga a la MISMA pubkey del vault.
+const data = { op: 'identify', publickey: id.me.publickey, token: client.token, ts: Date.now() }
+const { signature } = await id.signData(data)
+await client.identify({ data, signature })
+
+// (2) Activar push: registra el SW, crea la subscription y la registra
+//     (firmada por el vault) en el proxy. La VAPID se pide sola si no la pasás.
+await client.enablePush({
+  publicKey: id.me.publickey,
+  sign: (d) => id.signData(d),       // mismo firmante que identify
+  swPath: '/closer-click-push-sw.js' // servido desde tu origen
+})
+
+// Desactivar (cancela local + borra del proxy):
+await client.disablePush({ publicKey: id.me.publickey, sign: (d) => id.signData(d) })
+```
+
+El Service Worker, al recibir el timbre, hace `postMessage({ type: 'cc-push-ring' })` a las ventanas abiertas (para que la app reconecte y drene la cola) y, si no hay ventana visible, muestra una notificación genérica. Al hacer click enfoca/abre la app. Personalizá título/cuerpo editando el archivo del SW.
+
+> **Privacidad:** vos nunca manejás la push-subscription de un contacto — solo su pubkey. "Mandarle un push" no es una acción aparte: es `sendByPubkey(pubkeyDelAmigo, ...)`; si está offline, el proxy le toca el timbre solo.
+
 ## Eventos
 
 | evento              | argumentos                       |
@@ -120,6 +153,23 @@ En los handlers `'message'`, el tercer argumento incluye:
 - Reconexión simple con backoff fijo (configurable).
 - Las operaciones de canal devuelven `Promise` (timeout 10s).
 - La firma usa JSON canónico (claves ordenadas) para que el proxy verifique con la misma representación.
+
+## Publicación (npm)
+
+Paquete público en npm: `@gatoseya/closer-click-proxy-client`.
+
+```bash
+npm login                 # requerido (scope @gatoseya, --access public)
+npm version               # ya está en 0.5.0; usar `npm version patch|minor` para futuros bumps
+npm publish --access public
+```
+
+Tras publicar, las apps actualizan con `npm i @gatoseya/closer-click-proxy-client@latest`
+y, para Web Push, copian el Service Worker a su carpeta pública:
+
+```bash
+cp node_modules/@gatoseya/closer-click-proxy-client/sw/closer-click-push-sw.js public/
+```
 
 ## Licencia
 

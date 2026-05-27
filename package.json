@@ -1,7 +1,7 @@
 {
   "name": "@gatoseya/closer-click-proxy-client",
-  "version": "0.4.0",
-  "description": "Cliente WebSocket para el proxy de Closer Click (tokens, canales, firma ECDSA)",
+  "version": "0.5.0",
+  "description": "Cliente WebSocket para el proxy de Closer Click (tokens, canales, firma ECDSA, Web Push)",
   "type": "module",
   "main": "src/index.js",
   "module": "src/index.js",
@@ -10,10 +10,13 @@
     ".": {
       "types": "./src/index.d.ts",
       "import": "./src/index.js"
-    }
+    },
+    "./sw": "./sw/closer-click-push-sw.js",
+    "./sw/closer-click-push-sw.js": "./sw/closer-click-push-sw.js"
   },
   "files": [
     "src",
+    "sw",
     "README.md",
     "LICENSE"
   ],

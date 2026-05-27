@@ -208,6 +208,82 @@ export class WebSocketProxyClient {
     return this._request({ type: 'identify', data, signature }, 'identified')
   }
 
+  /**
+   * Consultar la config de Web Push del proxy.
+   * @returns {Promise<{enabled:boolean, vapidPublicKey:string|null}>}
+   */
+  async getPushConfig () {
+    const res = await this._request({ type: 'push-config' }, 'push-config')
+    return { enabled: !!res.enabled, vapidPublicKey: res.vapidPublicKey || null }
+  }
+
+  /**
+   * Activar Web Push ("timbre" para mensajes offline). Registra el Service
+   * Worker, crea la PushSubscription (VAPID) y la registra en el proxy bajo la
+   * MISMA publickey usada en `identify` (la del vault), con un sobre firmado por
+   * el vault — igual patrón que identify.
+   *
+   * No usa el SDK de Firebase: solo Web Push estándar. El push no transporta
+   * contenido de usuario; despierta al SW para que reconecte y baje la cola.
+   *
+   * @param {Object} opts
+   * @param {string} opts.publicKey  Pubkey JWK string del vault (la de identify).
+   * @param {(data:any)=>Promise<string|{signature:string}>} opts.sign  Firma del vault (id.signData).
+   * @param {string} [opts.vapidPublicKey]  VAPID pública; si falta se pide al proxy.
+   * @param {string} [opts.swPath='/closer-click-push-sw.js']  Ruta del SW servido por la app.
+   * @param {string} [opts.swScope]  Scope del SW.
+   * @returns {Promise<PushSubscription>}
+   */
+  async enablePush ({ publicKey, sign, vapidPublicKey, swPath = '/closer-click-push-sw.js', swScope } = {}) {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      throw new Error('Service Worker no soportado en este entorno')
+    }
+    if (!publicKey || typeof sign !== 'function') {
+      throw new Error('enablePush requires { publicKey, sign }')
+    }
+    if (!vapidPublicKey) {
+      const cfg = await this.getPushConfig()
+      if (!cfg.enabled || !cfg.vapidPublicKey) throw new Error('El proxy no tiene Web Push habilitado')
+      vapidPublicKey = cfg.vapidPublicKey
+    }
+    const reg = await navigator.serviceWorker.register(swPath, swScope ? { scope: swScope } : undefined)
+    await navigator.serviceWorker.ready
+    let sub = await reg.pushManager.getSubscription()
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      })
+    }
+    const subJson = typeof sub.toJSON === 'function' ? sub.toJSON() : sub
+    const data = { op: 'push-subscribe', publickey: publicKey, subscription: JSON.stringify(subJson), ts: Date.now() }
+    const signature = await normalizeSignature(sign, data)
+    await this._request({ type: 'push-subscribe', data, signature }, 'push-subscribed')
+    return sub
+  }
+
+  /**
+   * Desactivar Web Push: cancela la PushSubscription local y la borra del proxy.
+   * @param {Object} opts
+   * @param {string} opts.publicKey  Pubkey JWK string del vault.
+   * @param {(data:any)=>Promise<string|{signature:string}>} opts.sign  Firma del vault.
+   * @param {string} [opts.swPath='/closer-click-push-sw.js']
+   */
+  async disablePush ({ publicKey, sign, swPath = '/closer-click-push-sw.js' } = {}) {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration(swPath)
+        const sub = reg && await reg.pushManager.getSubscription()
+        if (sub) await sub.unsubscribe()
+      } catch (_) { /* best-effort local */ }
+    }
+    if (publicKey && typeof sign === 'function') {
+      const data = { op: 'push-unsubscribe', publickey: publicKey, ts: Date.now() }
+      const signature = await normalizeSignature(sign, data)
+      await this._request({ type: 'push-unsubscribe', data, signature }, 'push-unsubscribed')
+    }
+  }
+
   /** Tear down the logical pair with a peer (both sides get notified). */
   async disconnectFrom (targetToken) {
     return this._request(
@@ -318,6 +394,9 @@ export class WebSocketProxyClient {
       case 'disconnect_confirmation':
       case 'identified':
       case 'message_sent':
+      case 'push-config':
+      case 'push-subscribed':
+      case 'push-unsubscribed':
         this._resolvePending(data, type)
         break
       case 'error':
@@ -398,4 +477,24 @@ export class WebSocketProxyClient {
       try { h(...args) } catch (e) { console.error('handler error', e) }
     }
   }
+}
+
+// El callback de firma del vault devuelve `string` o `{ signature }` (id.signData
+// devuelve un objeto). Normalizamos a string base64.
+async function normalizeSignature (sign, data) {
+  const out = await sign(data)
+  const sig = typeof out === 'string' ? out : (out && out.signature)
+  if (!sig) throw new Error('sign() debe devolver una firma base64 (string o {signature})')
+  return sig
+}
+
+// Convierte la VAPID pública (base64url) al Uint8Array que espera
+// pushManager.subscribe({ applicationServerKey }).
+function urlBase64ToUint8Array (base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64)
+  const output = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i)
+  return output
 }
