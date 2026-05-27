@@ -307,6 +307,66 @@ export class WebSocketProxyClient {
     }
   }
 
+  /**
+   * Programar un push a la PROPIA pubkey (auto-recordatorio). El proxy lo
+   * dispara a la hora indicada, aunque la app esté cerrada (vía el SW). Es
+   * self-only: el target es siempre la pubkey que firma (no se puede programar
+   * a terceros). One-shot (`when`) o recurrente (`cron` + `tz`).
+   *
+   * @param {Object} opts
+   * @param {string} opts.publicKey  Pubkey JWK string del vault.
+   * @param {(data:any)=>Promise<string|{signature:string}>} opts.sign  Firma del vault.
+   * @param {Date|number} [opts.when]  One-shot: instante futuro (Date o epoch ms).
+   * @param {string} [opts.cron]  Recurrente: expresión cron (5 campos).
+   * @param {string} [opts.tz]    Timezone IANA para el cron (ej. 'America/Argentina/Buenos_Aires').
+   * @param {object} [opts.payload]  Datos extra opcionales para la notificación (ej. { title }).
+   * @returns {Promise<{ jobId:number, nextFire:number }>}
+   */
+  async schedulePush ({ publicKey, sign, when, cron, tz, payload } = {}) {
+    if (!publicKey || typeof sign !== 'function') throw new Error('schedulePush requires { publicKey, sign }')
+    const spec = {}
+    if (cron) {
+      spec.cron = cron
+      if (tz) spec.tz = tz
+    } else {
+      const fireAt = when instanceof Date ? when.getTime() : Number(when)
+      if (!Number.isFinite(fireAt)) throw new Error('schedulePush requires { when } (Date|ms) or { cron }')
+      spec.fireAt = fireAt
+    }
+    if (payload) spec.payload = payload
+    const data = { op: 'schedule-push', publickey: publicKey, spec: JSON.stringify(spec), ts: Date.now() }
+    const signature = await normalizeSignature(sign, data)
+    const res = await this._request({ type: 'schedule-push', data, signature }, 'push-scheduled')
+    return { jobId: res.jobId, nextFire: res.nextFire }
+  }
+
+  /**
+   * Cancelar un push programado propio.
+   * @param {Object} opts
+   * @param {string} opts.publicKey
+   * @param {(data:any)=>Promise<string|{signature:string}>} opts.sign
+   * @param {number} opts.jobId
+   */
+  async cancelScheduledPush ({ publicKey, sign, jobId } = {}) {
+    if (!publicKey || typeof sign !== 'function') throw new Error('cancelScheduledPush requires { publicKey, sign }')
+    const data = { op: 'cancel-push', publickey: publicKey, jobId, ts: Date.now() }
+    const signature = await normalizeSignature(sign, data)
+    const res = await this._request({ type: 'cancel-push', data, signature }, 'push-canceled')
+    return res.jobId
+  }
+
+  /**
+   * Listar los push programados propios.
+   * @returns {Promise<Array<{ jobId:number, nextFire:number, cron:string|null, tz:string|null, payload:object|null }>>}
+   */
+  async listScheduledPushes ({ publicKey, sign } = {}) {
+    if (!publicKey || typeof sign !== 'function') throw new Error('listScheduledPushes requires { publicKey, sign }')
+    const data = { op: 'list-pushes', publickey: publicKey, ts: Date.now() }
+    const signature = await normalizeSignature(sign, data)
+    const res = await this._request({ type: 'list-pushes', data, signature }, 'push-list')
+    return res.jobs || []
+  }
+
   /** Tear down the logical pair with a peer (both sides get notified). */
   async disconnectFrom (targetToken) {
     return this._request(
@@ -420,6 +480,9 @@ export class WebSocketProxyClient {
       case 'push-config':
       case 'push-subscribed':
       case 'push-unsubscribed':
+      case 'push-scheduled':
+      case 'push-canceled':
+      case 'push-list':
         this._resolvePending(data, type)
         break
       case 'error':

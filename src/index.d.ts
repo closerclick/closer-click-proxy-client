@@ -71,6 +71,27 @@ export interface DisablePushOptions {
   swPath?: string
 }
 
+export interface SchedulePushOptions {
+  publicKey: string
+  sign: SignFn
+  /** One-shot: instante futuro (Date o epoch ms). Usar esto o `cron`. */
+  when?: Date | number
+  /** Recurrente: expresión cron de 5 campos. */
+  cron?: string
+  /** Timezone IANA para el cron (ej. 'America/Argentina/Buenos_Aires'). */
+  tz?: string
+  /** Datos extra opcionales para la notificación (ej. { title }). */
+  payload?: Record<string, unknown>
+}
+
+export interface ScheduledPush {
+  jobId: number
+  nextFire: number
+  cron: string | null
+  tz: string | null
+  payload: Record<string, unknown> | null
+}
+
 export class WebSocketProxyClient {
   constructor (options?: WebSocketProxyClientOptions)
   readonly isConnected: boolean
@@ -97,6 +118,12 @@ export class WebSocketProxyClient {
   enablePush (opts: EnablePushOptions): Promise<PushSubscription>
   /** Desactivar Web Push: cancela la subscription local y la borra del proxy. */
   disablePush (opts: DisablePushOptions): Promise<void>
+  /** Programar un push a la propia pubkey (one-shot o cron). Self-only. */
+  schedulePush (opts: SchedulePushOptions): Promise<{ jobId: number; nextFire: number }>
+  /** Cancelar un push programado propio. */
+  cancelScheduledPush (opts: { publicKey: string; sign: SignFn; jobId: number }): Promise<number>
+  /** Listar los push programados propios. */
+  listScheduledPushes (opts: { publicKey: string; sign: SignFn }): Promise<ScheduledPush[]>;
   connectWebRTC (token: string): Promise<void>
   isWebRTCOpen (token: string): boolean
   getPublicKey (): Promise<string>

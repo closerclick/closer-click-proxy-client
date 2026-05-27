@@ -143,6 +143,36 @@ El Service Worker, al recibir el timbre, hace `postMessage({ type: 'cc-push-ring
 
 > **Privacidad:** vos nunca manejás la push-subscription de un contacto — solo su pubkey. "Mandarle un push" no es una acción aparte: es `sendByPubkey(pubkeyDelAmigo, ...)`; si está offline, el proxy le toca el timbre solo.
 
+## Push programado / auto-recordatorios (0.6.0+)
+
+Además del timbre event-driven, podés **programar un push a tu PROPIA pubkey** para una hora futura: el proxy lo dispara aunque la app esté cerrada (despierta el mismo SW). Es **self-only** — el target es siempre la pubkey que firma, así nadie puede programar pushes a terceros (sin vector de spam). Requiere haber activado push (`enablePush`) para que haya una subscription que timbrar.
+
+```js
+// One-shot: dentro de 1 hora
+const { jobId, nextFire } = await client.schedulePush({
+  publicKey: id.me.publickey,
+  sign: (d) => id.signData(d),
+  when: Date.now() + 3600_000,
+  payload: { title: 'Recordatorio', body: 'Revisá tus pronósticos' } // opcional
+})
+
+// Recurrente (cron + timezone IANA): lunes 08:30 hora de Buenos Aires
+await client.schedulePush({
+  publicKey: id.me.publickey,
+  sign: (d) => id.signData(d),
+  cron: '30 8 * * 1',
+  tz: 'America/Argentina/Buenos_Aires'
+})
+
+const jobs = await client.listScheduledPushes({ publicKey: id.me.publickey, sign: (d) => id.signData(d) })
+await client.cancelScheduledPush({ publicKey: id.me.publickey, sign: (d) => id.signData(d), jobId })
+```
+
+Notas:
+- **One-shot vs recurrente**: pasá `when` (Date|ms) **o** `cron` (+ `tz`). El cron es de 5 campos (estándar).
+- **Catch-up**: si el proxy estuvo caído cuando vencía un job, **no** lo dispara tarde — los one-shot vencidos se descartan y los recurrentes avanzan al próximo futuro.
+- **Best-effort**: un recordatorio es un timbre puro (no un mensaje); si al disparar no hay subscription activa, no pasa nada (no se encola).
+
 ## Eventos
 
 | evento              | argumentos                       |
