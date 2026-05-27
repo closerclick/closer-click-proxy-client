@@ -226,17 +226,29 @@ export class WebSocketProxyClient {
    * No usa el SDK de Firebase: solo Web Push estándar. El push no transporta
    * contenido de usuario; despierta al SW para que reconecte y baje la cola.
    *
+   * Resolución del Service Worker (en orden):
+   *   - `registration`: usa esa ServiceWorkerRegistration directamente.
+   *   - `swPath`: registra ese archivo (apps sin SW propio).
+   *   - ninguno: usa el SW ya registrado por la app (`navigator.serviceWorker.ready`).
+   * Esto último es lo correcto para PWAs que ya tienen su propio SW (p.ej. con
+   * vite-plugin-pwa/Workbox): inyectá los handlers de push en ese SW con
+   * `importScripts` y llamá enablePush() sin swPath para no clobbear el scope.
+   *
    * @param {Object} opts
    * @param {string} opts.publicKey  Pubkey JWK string del vault (la de identify).
    * @param {(data:any)=>Promise<string|{signature:string}>} opts.sign  Firma del vault (id.signData).
    * @param {string} [opts.vapidPublicKey]  VAPID pública; si falta se pide al proxy.
-   * @param {string} [opts.swPath='/closer-click-push-sw.js']  Ruta del SW servido por la app.
-   * @param {string} [opts.swScope]  Scope del SW.
+   * @param {ServiceWorkerRegistration} [opts.registration]  SW ya registrado a reutilizar.
+   * @param {string} [opts.swPath]  Ruta de un SW a registrar (apps sin SW propio).
+   * @param {string} [opts.swScope]  Scope del SW (solo con swPath).
    * @returns {Promise<PushSubscription>}
    */
-  async enablePush ({ publicKey, sign, vapidPublicKey, swPath = '/closer-click-push-sw.js', swScope } = {}) {
+  async enablePush ({ publicKey, sign, vapidPublicKey, registration, swPath, swScope } = {}) {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
       throw new Error('Service Worker no soportado en este entorno')
+    }
+    if (typeof PushManager === 'undefined') {
+      throw new Error('Push API no soportada en este navegador')
     }
     if (!publicKey || typeof sign !== 'function') {
       throw new Error('enablePush requires { publicKey, sign }')
@@ -246,8 +258,16 @@ export class WebSocketProxyClient {
       if (!cfg.enabled || !cfg.vapidPublicKey) throw new Error('El proxy no tiene Web Push habilitado')
       vapidPublicKey = cfg.vapidPublicKey
     }
-    const reg = await navigator.serviceWorker.register(swPath, swScope ? { scope: swScope } : undefined)
-    await navigator.serviceWorker.ready
+    let reg
+    if (registration) {
+      reg = registration
+    } else if (swPath) {
+      await navigator.serviceWorker.register(swPath, swScope ? { scope: swScope } : undefined)
+      reg = await navigator.serviceWorker.ready
+    } else {
+      // PWA con SW propio: reutilizar el registrado por la app.
+      reg = await navigator.serviceWorker.ready
+    }
     let sub = await reg.pushManager.getSubscription()
     if (!sub) {
       sub = await reg.pushManager.subscribe({
@@ -267,12 +287,15 @@ export class WebSocketProxyClient {
    * @param {Object} opts
    * @param {string} opts.publicKey  Pubkey JWK string del vault.
    * @param {(data:any)=>Promise<string|{signature:string}>} opts.sign  Firma del vault.
-   * @param {string} [opts.swPath='/closer-click-push-sw.js']
+   * @param {ServiceWorkerRegistration} [opts.registration]  SW a usar (default: el activo).
+   * @param {string} [opts.swPath]  Ruta del SW si se registró uno propio.
    */
-  async disablePush ({ publicKey, sign, swPath = '/closer-click-push-sw.js' } = {}) {
+  async disablePush ({ publicKey, sign, registration, swPath } = {}) {
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       try {
-        const reg = await navigator.serviceWorker.getRegistration(swPath)
+        const reg = registration ||
+          (swPath ? await navigator.serviceWorker.getRegistration(swPath)
+                  : await navigator.serviceWorker.ready)
         const sub = reg && await reg.pushManager.getSubscription()
         if (sub) await sub.unsubscribe()
       } catch (_) { /* best-effort local */ }

@@ -56,15 +56,18 @@ export interface EnablePushOptions {
   sign: SignFn
   /** VAPID pública; si falta se pide al proxy con getPushConfig(). */
   vapidPublicKey?: string
-  /** Ruta del Service Worker servido por la app. Default '/closer-click-push-sw.js'. */
+  /** SW ya registrado a reutilizar (PWAs con SW propio). */
+  registration?: ServiceWorkerRegistration
+  /** Ruta de un SW a registrar (apps sin SW propio). Si se omite, usa el SW activo. */
   swPath?: string
-  /** Scope del Service Worker. */
+  /** Scope del Service Worker (solo con swPath). */
   swScope?: string
 }
 
 export interface DisablePushOptions {
   publicKey: string
   sign: SignFn
+  registration?: ServiceWorkerRegistration
   swPath?: string
 }
 

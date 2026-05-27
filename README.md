@@ -102,7 +102,19 @@ En los handlers `'message'`, el tercer argumento incluye:
 
 Cuando un mensaje cae a la cola offline, el proxy puede mandar un **Web Push** (sin contenido de usuario) que despierta al Service Worker del destinatario para que reconecte y baje su cola cifrada. Usa **Web Push estándar + VAPID** — **no** el SDK de Firebase, ni JS de terceros, ni cookies. El push solo dice "despertá"; el contenido nunca pasa por el push service (en Android, FCM solo ve el metadato del timbre).
 
-**Requisitos:** el proxy debe tener VAPID configurado, y la app debe servir el Service Worker desde su propio origen. Copiá `node_modules/@gatoseya/closer-click-proxy-client/sw/closer-click-push-sw.js` a tu carpeta pública (p.ej. `/public/`).
+**Requisitos:** el proxy debe tener VAPID configurado, y la app debe tener un Service Worker.
+
+**Caso A — app sin SW propio:** copiá `node_modules/@gatoseya/closer-click-proxy-client/sw/closer-click-push-sw.js` a tu carpeta pública y pasá `swPath`:
+```js
+await client.enablePush({ publicKey, sign, swPath: '/closer-click-push-sw.js' })
+```
+
+**Caso B — PWA con SW propio (vite-plugin-pwa/Workbox, etc.):** NO registres un segundo SW (clobbearía el tuyo). En su lugar, inyectá los handlers de push en tu SW existente y llamá `enablePush()` **sin** `swPath` (usa el SW activo):
+```js
+// vite.config.js → VitePWA({ workbox: { importScripts: ['closer-click-push-sw.js'] } })
+// (copiá el SW a public/ para que importScripts lo encuentre)
+await client.enablePush({ publicKey, sign })   // reutiliza navigator.serviceWorker.ready
+```
 
 ```js
 import { Identity } from '@gatoseya/closer-click-identity'
@@ -115,12 +127,12 @@ const data = { op: 'identify', publickey: id.me.publickey, token: client.token, 
 const { signature } = await id.signData(data)
 await client.identify({ data, signature })
 
-// (2) Activar push: registra el SW, crea la subscription y la registra
-//     (firmada por el vault) en el proxy. La VAPID se pide sola si no la pasás.
+// (2) Activar push: crea la subscription y la registra (firmada por el vault)
+//     en el proxy. La VAPID se pide sola si no la pasás. Para una PWA con SW
+//     propio, omití swPath (usa el SW activo); ver "Caso B" arriba.
 await client.enablePush({
   publicKey: id.me.publickey,
-  sign: (d) => id.signData(d),       // mismo firmante que identify
-  swPath: '/closer-click-push-sw.js' // servido desde tu origen
+  sign: (d) => id.signData(d)        // mismo firmante que identify
 })
 
 // Desactivar (cancela local + borra del proxy):
