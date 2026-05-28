@@ -1,5 +1,5 @@
 {
-  "name": "@gatoseya/closer-click-proxy-client",
+  "name": "@closerclick/closer-click-proxy-client",
   "version": "0.6.0",
   "description": "Cliente WebSocket para el proxy de Closer Click (tokens, canales, firma ECDSA, Web Push)",
   "type": "module",

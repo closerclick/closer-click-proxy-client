@@ -1,17 +1,17 @@
-# @gatoseya/closer-click-proxy-client
+# @closerclick/closer-click-proxy-client
 
 Cliente WebSocket para el proxy de Closer Click. Maneja la conexión, el token efímero, mensajes peer-to-peer y canales públicos firmados con ECDSA P-256.
 
 ## Instalación
 
 ```bash
-npm install @gatoseya/closer-click-proxy-client
+npm install @closerclick/closer-click-proxy-client
 ```
 
 ## Uso
 
 ```js
-import { WebSocketProxyClient } from '@gatoseya/closer-click-proxy-client'
+import { WebSocketProxyClient } from '@closerclick/closer-click-proxy-client'
 
 const client = new WebSocketProxyClient({ url: 'wss://proxy.closer.click' })
 
@@ -76,7 +76,7 @@ const signature = await client.sign({ msg: 'hola' })
 Para mensajes que deben llegar aunque el destinatario esté offline, el proxy mantiene una cola por **publickey**. Para usarla, el cliente llama a `identify()` con un sobre firmado externamente (típicamente por el identity vault), y luego direcciona por `to_publickey` en lugar de `to`.
 
 ```js
-import { Identity } from '@gatoseya/closer-click-identity'
+import { Identity } from '@closerclick/closer-click-identity'
 
 const id = await Identity.connect()
 await client.connect()
@@ -104,7 +104,7 @@ Cuando un mensaje cae a la cola offline, el proxy puede mandar un **Web Push** (
 
 **Requisitos:** el proxy debe tener VAPID configurado, y la app debe tener un Service Worker.
 
-**Caso A — app sin SW propio:** copiá `node_modules/@gatoseya/closer-click-proxy-client/sw/closer-click-push-sw.js` a tu carpeta pública y pasá `swPath`:
+**Caso A — app sin SW propio:** copiá `node_modules/@closerclick/closer-click-proxy-client/sw/closer-click-push-sw.js` a tu carpeta pública y pasá `swPath`:
 ```js
 await client.enablePush({ publicKey, sign, swPath: '/closer-click-push-sw.js' })
 ```
@@ -117,7 +117,7 @@ await client.enablePush({ publicKey, sign })   // reutiliza navigator.serviceWor
 ```
 
 ```js
-import { Identity } from '@gatoseya/closer-click-identity'
+import { Identity } from '@closerclick/closer-click-identity'
 
 const id = await Identity.connect()
 await client.connect()
@@ -198,19 +198,19 @@ Notas:
 
 ## Publicación (npm)
 
-Paquete público en npm: `@gatoseya/closer-click-proxy-client`.
+Paquete público en npm: `@closerclick/closer-click-proxy-client`.
 
 ```bash
-npm login                 # requerido (scope @gatoseya, --access public)
+npm login                 # requerido (scope @closerclick, --access public)
 npm version               # ya está en 0.5.0; usar `npm version patch|minor` para futuros bumps
 npm publish --access public
 ```
 
-Tras publicar, las apps actualizan con `npm i @gatoseya/closer-click-proxy-client@latest`
+Tras publicar, las apps actualizan con `npm i @closerclick/closer-click-proxy-client@latest`
 y, para Web Push, copian el Service Worker a su carpeta pública:
 
 ```bash
-cp node_modules/@gatoseya/closer-click-proxy-client/sw/closer-click-push-sw.js public/
+cp node_modules/@closerclick/closer-click-proxy-client/sw/closer-click-push-sw.js public/
 ```
 
 ## Licencia
