@@ -160,6 +160,24 @@ export class WebSocketProxyClient {
   /** Alias for list() to ease migration from older clients. */
   listChannel (channelName) { return this.list(channelName) }
 
+  /**
+   * Watch a channel read-only: receive its `channel_joined`/`channel_left`/
+   * `peer_disconnected` events live WITHOUT being listed as a member (you won't
+   * appear in others' list()). Ideal for a lobby that shows rooms in real time
+   * without publishing itself as a phantom room. Resolves with the current tokens.
+   */
+  async watch (channelName) {
+    const channel = await buildSignedChannel(channelName)
+    const res = await this._request({ type: 'watch', channel }, 'watched', 'channel')
+    return res.tokens || []
+  }
+
+  /** Stop watching a channel. */
+  async unwatch (channelName) {
+    const channel = await buildSignedChannel(channelName)
+    return this._request({ type: 'unwatch', channel }, 'unwatched', 'channel')
+  }
+
   /** List public channel names (optionally filtered by prefix). */
   async listChannels (options = {}) {
     const msg = { type: 'list_channels' }
@@ -471,6 +489,8 @@ export class WebSocketProxyClient {
         break
       case 'published':
       case 'unpublished':
+      case 'watched':
+      case 'unwatched':
       case 'channel_list':
       case 'channels_list':
       case 'channel_count':

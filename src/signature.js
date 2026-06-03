@@ -81,7 +81,12 @@ function bufferToBase64 (bytes) {
  */
 export async function buildSignedChannel (channelName, extraData = {}) {
   const publickey = await getPublicKeyJwk()
-  const data = { name: channelName, publickey, ...extraData }
+  // `name` (clave del canal) y `publickey` son AUTORITATIVOS: van DESPUÉS del
+  // spread para que extraData no pueda pisarlos. extraData es solo metadata
+  // (p.ej. nickname, roomName, gameType); si trae `name` no debe cambiar el
+  // canal bajo el que se publica/lista (era un bug que rompía el descubrimiento
+  // del lobby, que publica con { name: <roomName> } como extra).
+  const data = { ...extraData, name: channelName, publickey }
   const signature = await signData(data)
   return { data, signature }
 }

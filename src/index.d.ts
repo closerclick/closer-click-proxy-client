@@ -107,6 +107,10 @@ export class WebSocketProxyClient {
   unpublish (channel: string): Promise<any>
   list (channel: string): Promise<string[]>
   listChannel (channel: string): Promise<string[]>
+  /** Observar un canal read-only: recibir joined/left/peer_disconnected en vivo sin figurar como miembro. Devuelve los tokens actuales. */
+  watch (channel: string): Promise<string[]>
+  /** Dejar de observar un canal. */
+  unwatch (channel: string): Promise<any>
   listChannels (options?: ListChannelsOptions): Promise<ChannelEntry[]>
   channelCount (channel: string): Promise<number>
   disconnectFrom (targetToken: string): Promise<any>
