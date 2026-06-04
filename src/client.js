@@ -27,6 +27,18 @@ export class WebSocketProxyClient {
     this.enableWebRTC = options.enableWebRTC !== false
     this.iceServers = options.iceServers || null
 
+    // Heartbeat de aplicación: el WebSocket del browser NO expone ping/pong de
+    // protocolo, así que mandamos `{type:'ping'}` y esperamos cualquier tráfico
+    // de vuelta (el server responde `pong`). Si no hay respuesta en
+    // `heartbeatTimeout`, la conexión está "half-open" (TCP muerto sin FIN) y
+    // forzamos la reconexión. Sin esto, una caída silenciosa pasa inadvertida y
+    // los `send` se pierden en el vacío.
+    this.enableHeartbeat = options.enableHeartbeat !== false
+    this.heartbeatInterval = options.heartbeatInterval ?? 20000
+    this.heartbeatTimeout = options.heartbeatTimeout ?? 8000
+    this._hbTimer = null
+    this._hbDeadTimer = null
+
     this.ws = null
     this.token = null
     this._connected = false
@@ -406,14 +418,24 @@ export class WebSocketProxyClient {
   // ---------- internals ----------
 
   _open () {
-    this.ws = new WebSocket(this.url)
-    this.ws.addEventListener('open', () => {
+    const ws = new WebSocket(this.url)
+    this.ws = ws
+    // `ws !== this.ws` ⇒ es un socket que ya abandonamos (p.ej. por heartbeat
+    // muerto). Ignoramos sus eventos tardíos para no disparar reconexiones dobles.
+    ws.addEventListener('open', () => {
+      if (ws !== this.ws) return
       this._connected = true
       this._reconnectAttempts = 0
       this._emit('connect')
+      this._startHeartbeat()
     })
-    this.ws.addEventListener('message', (ev) => this._handleFrame(ev.data))
-    this.ws.addEventListener('error', (err) => {
+    ws.addEventListener('message', (ev) => {
+      if (ws !== this.ws) return
+      this._noteActivity()           // cualquier frame entrante prueba que está vivo
+      this._handleFrame(ev.data)
+    })
+    ws.addEventListener('error', (err) => {
+      if (ws !== this.ws) return
       this._emit('error', { type: 'transport', error: err })
       if (this._connectReject) {
         this._connectReject(err)
@@ -421,7 +443,9 @@ export class WebSocketProxyClient {
         this._connectReject = null
       }
     })
-    this.ws.addEventListener('close', (ev) => {
+    ws.addEventListener('close', (ev) => {
+      if (ws !== this.ws) return
+      this._stopHeartbeat()
       const wasConnected = this._connected
       this._connected = false
       this._emit('disconnect', { code: ev.code, reason: ev.reason })
@@ -429,6 +453,46 @@ export class WebSocketProxyClient {
         this._scheduleReconnect()
       }
     })
+  }
+
+  // ---------- heartbeat ----------
+
+  _startHeartbeat () {
+    if (!this.enableHeartbeat) return
+    this._stopHeartbeat()
+    this._hbTimer = setInterval(() => this._heartbeatTick(), this.heartbeatInterval)
+  }
+
+  _stopHeartbeat () {
+    if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null }
+    if (this._hbDeadTimer) { clearTimeout(this._hbDeadTimer); this._hbDeadTimer = null }
+  }
+
+  // Llamado en cada frame entrante: si estábamos esperando un pong, llegó algo ⇒ vivo.
+  _noteActivity () {
+    if (this._hbDeadTimer) { clearTimeout(this._hbDeadTimer); this._hbDeadTimer = null }
+  }
+
+  _heartbeatTick () {
+    if (!this._connected || !this.ws) return
+    if (this._hbDeadTimer) return // ya hay un ping en vuelo esperando respuesta
+    try { this.ws.send(JSON.stringify({ type: 'ping' })) }
+    catch (_) { this._onHeartbeatDead(); return }
+    this._hbDeadTimer = setTimeout(() => this._onHeartbeatDead(), this.heartbeatTimeout)
+  }
+
+  // No llegó respuesta al ping ⇒ conexión half-open. Abandonamos el socket y
+  // forzamos la reconexión sin esperar el `close` (que en half-open puede no llegar).
+  _onHeartbeatDead () {
+    this._stopHeartbeat()
+    const dead = this.ws
+    this.ws = null  // a partir de acá, los eventos tardíos de `dead` se ignoran
+    const wasConnected = this._connected
+    this._connected = false
+    this._emit('error', { type: 'heartbeat_timeout' })
+    this._emit('disconnect', { code: 4000, reason: 'heartbeat timeout' })
+    try { if (dead) dead.close() } catch (_) {}
+    if (wasConnected && this.autoReconnect) this._scheduleReconnect()
   }
 
   _scheduleReconnect () {
@@ -525,6 +589,9 @@ export class WebSocketProxyClient {
           severity: data.severity,
           timestamp: data.timestamp
         })
+        break
+      case 'pong':
+        // keepalive: la actividad ya se registró en _noteActivity; nada más que hacer.
         break
       default:
         this._emit('unknown', data)
